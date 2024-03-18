@@ -1,0 +1,88 @@
+#!/bin/sh
+set -eu
+
+# Some simple tests of the initramfs network configuration.
+
+# The basic idea is to make an ext2 root image that only ships a /sbin/init to
+# just gather some data and shutdown again and boot it in qemu system
+# emulation (not KVM, so it can be run in the autopkgtest architecture without
+# hoping nested kvm works).  Currently it only sets up qemu user networking
+# which limits our ability to be clever. In the long run we should set up a
+# tun and a bridge and specify the mac address of the NICs in the emulated
+# system and run dnsmasq on it so we test ipv6 and can control which ips which
+# nics get and so on -- but this is still better than nothing.
+
+SUPPORTED_FLAVOURS='amd64 generic'
+ROOTDISK_QEMU_IF=virtio
+ROOTDISK_LINUX_NAME=vda
+. debian/tests/test-common
+
+cat >>"${CONFDIR}/initramfs.conf" <<EOF
+MODULES=list
+BUSYBOX=y
+FSTYPE=ext2
+EOF
+cat >"${CONFDIR}/modules" <<EOF
+ext2
+virtio_pci
+virtio_blk
+virtio_net
+EOF
+
+cat >"${ROOTDIR}/sbin/init" <<EOF
+#!/bin/sh
+echo "I: Executing /sbin/init from root fs"
+# Stop the kernel from spamming the output
+current_printk=\$(sysctl kernel.printk)
+sysctl -w kernel.printk="4 4 1 7"
+# Run twice, once for the logs, once for the test harness
+echo "I: ip addr"
+ip addr
+echo "I: ip route"
+ip route
+for file in /run/net-*.conf /run/net6-*.conf; do
+  [ -f \$file ] || continue;
+  echo "########## \$file ##########"
+  cat \$file
+  echo "########################################"
+done
+echo "########## ip -json addr ##########"
+ip -json addr
+echo "########################################"
+echo "########## ip -json link ##########"
+ip -json link
+echo "########################################"
+echo "########## ps aux ##########"
+ps aux
+echo "########################################"
+sysctl -w "\${current_printk}"
+echo '${INIT_MESSAGE}'
+poweroff
+EOF
+
+. /usr/share/initramfs-tools/hook-functions
+verbose=y
+DESTDIR="$ROOTDIR"
+for binary in /bin/cat /bin/ps /sbin/ip /sbin/sysctl; do
+    copy_exec "$binary"
+done
+
+build_initramfs
+
+build_rootfs_ext2
+
+nicname="ens${NICSLOT}"
+
+run_qemu_amd64 ""
+./debian/tests/check-results "${OUTPUT}" has_no_ipv4_addr "$nicname"
+
+run_qemu_amd64 "ip=dhcp"
+./debian/tests/check-results "${OUTPUT}" has_an_ipv4_addr "$nicname"
+
+run_qemu_amd64 "ip=:::::$nicname:dhcp"
+check_output "Begin: Waiting up to 180 secs for $nicname to become available"
+./debian/tests/check-results "${OUTPUT}" has_an_ipv4_addr "$nicname"
+
+run_qemu_amd64 "ip=10.0.2.100::10.0.2.2:255.0.0.0::$nicname:"
+check_output "Begin: Waiting up to 180 secs for $nicname to become available"
+./debian/tests/check-results "${OUTPUT}" has_ipv4_addr "$nicname" 10.0.2.100
