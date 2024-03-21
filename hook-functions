@@ -114,6 +114,12 @@ manual_add_modules()
 			continue
 		fi
 
+		kmod_modname="${kmod##*/}"
+		kmod_modname="${kmod_modname%%.*}"
+
+		# Skip nouveau module
+		[ "${kmod_modname}" = "nouveau" ] && continue
+
 		copy_file module "${kmod}" || continue
 
 		# Add required firmware
@@ -127,8 +133,6 @@ manual_add_modules()
 					continue
 				fi
 
-				kmod_modname="${kmod##*/}"
-				kmod_modname="${kmod_modname%%.*}"
 				if grep -q "^$kmod_modname\\>" /proc/modules "${CONFDIR}/modules"; then
 					echo "W: Possible missing firmware /lib/firmware/${firmware} for module ${kmod_modname}" >&2
 				fi
@@ -462,7 +466,7 @@ dep_add_modules_mount()
 
 	if [ "${FSTYPE}" = "zfs" ]; then
 		manual_add_modules "${FSTYPE}"
- 
+
 		# ZFS uses the name of a filesystem instead of a device. Find
 		# the devices that make up the pool containing the specified
 		# filesystem, and add the appropriate driver for each device.
