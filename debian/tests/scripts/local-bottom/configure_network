@@ -1,0 +1,28 @@
+#!/bin/sh
+
+PREREQ=""
+prereqs()
+{
+	echo "$PREREQ"
+}
+case $1 in
+# get pre-requisites
+prereqs)
+	prereqs
+	exit 0
+	;;
+esac
+
+. /scripts/functions
+
+case "$IP" in
+""|none|off)
+	case "$IP6" in
+	""|none|off) ;; # Do nothing
+	*)
+		configure_networking
+	esac
+	;;
+*)
+	configure_networking
+esac
