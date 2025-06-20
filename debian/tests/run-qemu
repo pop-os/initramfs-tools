@@ -1,0 +1,63 @@
+#!/bin/sh
+set -eu
+
+# Run qemu-system for the system architecture
+
+if test "$#" -lt 3; then
+	echo "${0##*/}: Error: Not enough parameters." >&2
+	echo "Usage: ${0##*/} kernel initrd append [extra_args]" >&2
+	exit 1
+fi
+
+kernel="$1"
+initrd="$2"
+append="$3"
+shift 3
+
+ARCHITECTURE=$(dpkg --print-architecture)
+
+case "$ARCHITECTURE" in
+amd64)
+	qemu="qemu-system-x86_64"
+	;;
+arm64)
+	qemu="qemu-system-aarch64"
+	machine="virt,gic-version=max"
+	cpu="max,pauth-impdef=on"
+	efi_code=/usr/share/AAVMF/AAVMF_CODE.fd
+	efi_vars=/usr/share/AAVMF/AAVMF_VARS.fd
+	;;
+armhf)
+	qemu="qemu-system-arm"
+	machine="virt"
+	cpu=cortex-a7
+	efi_code=/usr/share/AAVMF/AAVMF32_CODE.fd
+	efi_vars=/usr/share/AAVMF/AAVMF32_VARS.fd
+	console=ttyAMA0
+	;;
+ppc64el)
+	qemu="qemu-system-ppc64"
+	machine="cap-ccf-assist=off,cap-cfpc=broken,cap-ibs=broken,cap-sbbc=broken"
+	console=hvc0
+	;;
+*)
+	qemu="qemu-system-${ARCHITECTURE}"
+esac
+
+if [ -c /dev/kvm ] && [ "$ARCHITECTURE" != "ppc64el" ]; then
+	kvm=-enable-kvm
+	cpu=host
+fi
+
+if test -f "${efi_vars-}"; then
+	efi_vars_copy="$(mktemp -t "${efi_vars##*/}.XXXXXXXXXX")"
+	cp "$efi_vars" "$efi_vars_copy"
+fi
+
+set -- ${machine:+-machine "${machine}"} ${kvm:+"$kvm"} ${cpu:+-cpu "${cpu}"} -m 1G \
+	${efi_code:+-drive "file=${efi_code},if=pflash,format=raw,read-only=on"} \
+	${efi_vars:+-drive "file=${efi_vars_copy},if=pflash,format=raw"} \
+	-nodefaults -no-reboot -kernel "${kernel}" -initrd "${initrd}" "$@" \
+	-append "console=${console:-ttyS0},115200 ro ${append}"
+echo "${0##*/}: $qemu $*"
+exec "$qemu" "$@"

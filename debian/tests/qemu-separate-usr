@@ -1,6 +1,6 @@
 #!/bin/sh -e
 
-SUPPORTED_FLAVOURS='amd64 generic'
+SUPPORTED_FLAVOURS='amd64 arm64 armmp powerpc64 s390x generic'
 ROOTDISK_QEMU_IF=virtio
 ROOTDISK_LINUX_NAME=vda
 USRDISK="$(mktemp)"
@@ -29,7 +29,7 @@ mv "${ROOTDIR}/usr/"* "${USRDIR}"
 build_rootfs_ext2
 build_fs_ext2 "${USRDIR}" "${USRDISK}"
 
-run_qemu_amd64
+run_qemu
 
 # Check that fsck ran on both devices
 grep -q "^/dev/${ROOTDISK_LINUX_NAME}: clean," "${OUTPUT}"

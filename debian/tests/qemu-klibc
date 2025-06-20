@@ -1,6 +1,7 @@
 #!/bin/sh -e
 
-SUPPORTED_FLAVOURS='amd64 generic'
+# The qemu machines on arm64 and ppc64el are too slow for MODULES=most.
+SUPPORTED_FLAVOURS='amd64 armmp s390x generic'
 . debian/tests/test-common
 
 cat >>"${CONFDIR}/initramfs.conf" <<EOF
@@ -13,7 +14,7 @@ build_initramfs
 
 build_rootfs_ext2
 
-run_qemu_amd64
+run_qemu
 
 # Check that fsck ran
 grep -q "^/dev/${ROOTDISK_LINUX_NAME}: clean," "${OUTPUT}"
