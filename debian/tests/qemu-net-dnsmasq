@@ -1,0 +1,175 @@
+#!/bin/sh
+set -eu
+
+# Test the initramfs network configuration with a dnsmasq server.
+#
+# The qemu-net autopkgtest uses QEMU user networking that is limited. To test
+# more cases use dnsmasq as DHCP server. To avoid needing root permission
+# or a special setup on the host, use QEMU socket network. One qemu process
+# runs dnsmasq on a listening socket and the test qemu process connects to it.
+
+# The qemu machines on arm64 and ppc64el are too slow and the network setup runs into a timeout.
+SUPPORTED_FLAVOURS='amd64 armmp s390x generic'
+ROOTDISK_QEMU_IF=virtio
+ROOTDISK_LINUX_NAME=vda
+. debian/tests/test-common
+DNSMASQ_QEMU_LOG="${BASEDIR}/dnsmasq.log"
+DNSMASQ_QEMU_PID="${BASEDIR}/dnsmasq.pid"
+
+build_dnsmasq_rootfs_ext2() {
+	local root_disk="$1"
+	local root_dir="${BASEDIR}/dnsmasq-rootdir"
+	for subdir in etc dev proc run sys usr usr/bin usr/lib/modules usr/lib64 usr/sbin tmp; do
+		mkdir -p "${root_dir}/${subdir}"
+	done
+	for subdir in bin lib lib64 sbin; do
+		ln -s "usr/${subdir}" "${root_dir}/${subdir}"
+	done
+	echo "root:x:0:0:root:/root:/bin/sh" > "${root_dir}/etc/passwd"
+	echo "root:x:0:" > "${root_dir}/etc/group"
+	cat >"${root_dir}/sbin/init" <<EOF
+#!/bin/sh
+set -eu
+
+echo "I: Executing /sbin/init from root fs"
+trap poweroff INT TERM EXIT
+
+ip link set up dev lan9
+ip addr add 10.0.7.1/24 dev lan9
+ip addr add fc07::1/64 dev lan9
+
+echo "I: ip addr"
+ip addr
+echo "I: ip route"
+ip route
+echo "I: ip -6 route"
+ip -6 route
+
+mount -t tmpfs tmpfs /tmp
+dnsmasq --log-debug
+EOF
+	cat >"${root_dir}/etc/dnsmasq.conf" <<EOF
+dhcp-leasefile=/tmp/dnsmasq.leases
+keep-in-foreground
+log-facility=-
+no-hosts
+no-resolv
+user=root
+group=root
+pid-file=
+
+enable-ra
+dhcp-range=10.0.7.100,10.0.7.150
+dhcp-range=fc07::a0,fc07::ef
+domain=test
+dhcp-option=option6:domain-search,example.com,example
+dhcp-option=option:mtu,9000
+
+# lan0
+dhcp-host=52:54:00:65:43:21,10.0.7.30
+dhcp-host=id:00:03:00:01:52:54:00:65:43:21,[fc07::beef],pizza
+EOF
+	chmod a+x "${root_dir}/sbin/init"
+
+	. /usr/share/initramfs-tools/hook-functions
+	verbose=y
+	DESTDIR="$root_dir"
+	copy_exec /usr/lib/initramfs-tools/bin/busybox /bin/busybox
+	ln -s busybox "${root_dir}/bin/sh"
+	copy_exec /sbin/dnsmasq
+
+	build_fs_ext2 "${root_dir}" "${root_disk}"
+}
+
+clean_up() {
+	if test -f "${DNSMASQ_QEMU_PID}"; then
+		dnsmasq_qemu_pid=$(cat "${DNSMASQ_QEMU_PID}")
+		echo "Clean up: Killing dnsmasq qemu process $dnsmasq_qemu_pid..."
+		kill "$dnsmasq_qemu_pid" || true
+	fi
+	if test -e "${DNSMASQ_QEMU_LOG}"; then
+		echo ">>>>>>>>>>>>>>>>>>>> dnsmasq qemu log >>>>>>>>>>>>>>>>>>>>"
+		cat "${DNSMASQ_QEMU_LOG}"
+		echo "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<"
+	fi
+}
+
+trap clean_up INT TERM EXIT
+
+cat >>"${CONFDIR}/initramfs.conf" <<EOF
+MODULES=list
+BUSYBOX=n
+FSTYPE=ext2
+EOF
+cat >"${CONFDIR}/modules" <<EOF
+ext2
+virtio_pci
+virtio_blk
+virtio_net
+EOF
+install -m 755 debian/tests/hooks/drop-hostname "${CONFDIR}/hooks/drop-hostname"
+install -m 755 debian/tests/hooks/persistent-net "${CONFDIR}/hooks/persistent-net"
+build_initramfs
+
+build_dnsmasq_rootfs_ext2 "${BASEDIR}/dnsmasq.raw"
+run_qemu_in_background "${BASEDIR}/dnsmasq.raw" "${DNSMASQ_QEMU_PID}" "${DNSMASQ_QEMU_LOG}"
+
+prepare_network_dumping_rootfs
+build_rootfs_ext2
+
+wait_for_server_startup "Executing /sbin/init from root fs" "${DNSMASQ_QEMU_LOG}" "$(cat "${DNSMASQ_QEMU_PID}")"
+
+EXPECTED_DHCP_LAN0="
+DEVICE='lan0'
+PROTO='dhcp'
+IPV4ADDR='10.0.7.30'
+IPV4BROADCAST='10.0.7.255'
+IPV4NETMASK='255.255.255.0'
+IPV4GATEWAY='10.0.7.1'
+IPV4DNS0='10.0.7.1'
+HOSTNAME=''
+DNSDOMAIN='test'
+ROOTSERVER='10.0.7.1'
+filename=''
+DOMAINSEARCH=''
+"
+EXPECTED_DHCP6_LAN0="
+DEVICE6='lan0'
+IPV6PROTO='dhcp6'
+IPV6ADDR='fc07::beef'
+IPV6NETMASK='128'
+IPV6DNS0='fc07::1'
+IPV6DOMAINSEARCH='example.com. example.'
+"
+
+run_qemu_with_socket_network "ip6=dhcp"
+check_output "Begin: Waiting up to 180 secs for any network device to become available"
+./debian/tests/check-log "${OUTPUT}" has_no_running_processes \
+	has_hostname "pizza" \
+	has_interface_mtu lan0 9000 \
+	has_ipv4_addr "10\.0\.7\.30/24" "lan0" \
+	has_ipv4_default_route "10\.0\.7\.1" "lan0" \
+	has_ipv6_addr "fc07::beef/128" "lan0" \
+	has_net_conf 2 "/run/net-lan0.conf=${EXPECTED_DHCP_LAN0}" "/run/net6-lan0.conf=${EXPECTED_DHCP6_LAN0}"
+
+# Test DHCP configuration with BOOTIF specified
+run_qemu_with_socket_network "BOOTIF=01-52-54-00-65-43-21 ip6=dhcp"
+check_output "Begin: Waiting up to 180 secs for device with address 52:54:00:65:43:21 to become available"
+./debian/tests/check-log "${OUTPUT}" has_no_running_processes \
+	has_hostname "pizza" \
+	has_interface_mtu lan0 9000 \
+	has_ipv4_addr "10\.0\.7\.30/24" "lan0" \
+	has_ipv4_default_route "10\.0\.7\.1" "lan0" \
+	has_ipv6_addr "fc07::beef/128" "lan0" \
+	has_net_conf 2 "/run/net-lan0.conf=${EXPECTED_DHCP_LAN0}" "/run/net6-lan0.conf=${EXPECTED_DHCP6_LAN0}"
+
+# Test specifying the device
+run_qemu_with_socket_network "ip6=lan0"
+check_output "Begin: Waiting up to 180 secs for lan0 to become available"
+./debian/tests/check-log "${OUTPUT}" has_no_running_processes \
+	has_hostname "pizza" \
+	has_interface_mtu lan0 9000 \
+	has_ipv4_addr "10\.0\.7\.30/24" "lan0" \
+	has_ipv4_default_route "10\.0\.7\.1" "lan0" \
+	has_ipv6_addr "fc07::beef/128" "lan0" \
+	has_net_conf 2 "/run/net-lan0.conf=${EXPECTED_DHCP_LAN0}" "/run/net6-lan0.conf=${EXPECTED_DHCP6_LAN0}"

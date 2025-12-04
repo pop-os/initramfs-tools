@@ -17,18 +17,13 @@ shift 3
 ARCHITECTURE=$(dpkg --print-architecture)
 
 case "$ARCHITECTURE" in
-amd64)
-	qemu="qemu-system-x86_64"
-	;;
 arm64)
-	qemu="qemu-system-aarch64"
 	machine="virt,gic-version=max"
 	cpu="max,pauth-impdef=on"
 	efi_code=/usr/share/AAVMF/AAVMF_CODE.fd
 	efi_vars=/usr/share/AAVMF/AAVMF_VARS.fd
 	;;
 armhf)
-	qemu="qemu-system-arm"
 	machine="virt"
 	cpu=cortex-a7
 	efi_code=/usr/share/AAVMF/AAVMF32_CODE.fd
@@ -36,12 +31,9 @@ armhf)
 	console=ttyAMA0
 	;;
 ppc64el)
-	qemu="qemu-system-ppc64"
 	machine="cap-ccf-assist=off,cap-cfpc=broken,cap-ibs=broken,cap-sbbc=broken"
 	console=hvc0
 	;;
-*)
-	qemu="qemu-system-${ARCHITECTURE}"
 esac
 
 if [ -c /dev/kvm ] && [ "$ARCHITECTURE" != "ppc64el" ]; then
@@ -57,7 +49,8 @@ fi
 set -- ${machine:+-machine "${machine}"} ${kvm:+"$kvm"} ${cpu:+-cpu "${cpu}"} -m 1G \
 	${efi_code:+-drive "file=${efi_code},if=pflash,format=raw,read-only=on"} \
 	${efi_vars:+-drive "file=${efi_vars_copy},if=pflash,format=raw"} \
+	-device virtio-rng-pci,rng=rng0 -object rng-random,filename=/dev/urandom,id=rng0 \
 	-nodefaults -no-reboot -kernel "${kernel}" -initrd "${initrd}" "$@" \
 	-append "console=${console:-ttyS0},115200 ro ${append}"
-echo "${0##*/}: $qemu $*"
-exec "$qemu" "$@"
+echo "${0##*/}: qemu-system-${ARCHITECTURE} $*"
+exec "qemu-system-${ARCHITECTURE}" "$@"

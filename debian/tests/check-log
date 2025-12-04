@@ -10,7 +10,6 @@ import json
 import pathlib
 import re
 import shlex
-import subprocess
 import sys
 import typing
 
@@ -93,7 +92,7 @@ class Check:
         check(*check_args)
         return self.errors
 
-    def _check_is_subset(self, expected: set[str], actual: set[str]) -> None:
+    def _check_is_subset(self, actual: set[str], expected: set[str]) -> None:
         """Check that the first dictionary is a subset of the second one.
 
         Log errors if the sets are different.
@@ -204,8 +203,9 @@ class Check:
     def has_net_conf(self, min_expected_files: str, *expected_net_confs: str) -> None:
         """Compare the /run/net*.conf files.
 
-        There must be at least one /run/net*.conf file in the log output and no
-        unexpected one. The format is `<file name>=<expected content>`.
+        There must be at least `min_expected_files` /run/net*.conf files
+        in the log output and no unexpected one. The format for
+        `expected_net_confs` is `<file name>=<expected content>`.
         """
 
         expected = dict(nc.split("=", maxsplit=1) for nc in expected_net_confs)
@@ -219,7 +219,7 @@ class Check:
                 f"Expected at least {min_expected_files} /run/net*.conf files,"
                 f" but got only {len(got)}: {set(got.keys())}"
             )
-        self._check_is_subset(set(expected.keys()), set(got.keys()))
+        self._check_is_subset(set(got.keys()), set(expected.keys()))
 
         for net_dev in sorted(got.keys()):
             log_prefix = f"{net_dev}: "
@@ -228,15 +228,23 @@ class Check:
             self._check_is_subdict(expected_net_conf, actual_net_conf, log_prefix)
             print(f"compared {len(expected_net_conf)} items from {net_dev}")
 
+    def has_no_hostname(self) -> None:
+        """Check that the hostname is not set."""
+        hostname = self.command_outputs["hostname"].strip()
+        if hostname in ("", "(none)"):
+            print("hostname is not set")
+            return
+        self._error(f"hostname '{hostname}' is set")
+
     def has_no_running_processes(self) -> None:
         """Check that there are no remaining running processes from the initrd."""
         processes = drop_kernel_processes(self.get_commands_from_ps_output())
 
-        udevd = "/lib/systemd/systemd-udevd --daemon --resolve-names=never"
-        if udevd in processes and get_architecture() != "amd64":
+        udevd = "/usr/lib/systemd/systemd-udevd --daemon --resolve-names=never"
+        if udevd in processes:
             print(
-                "Warning: Ignoring running /lib/systemd/systemd-udevd processes."
-                " See https://launchpad.net/bugs/2025369"
+                f"Warning: Ignoring running '{udevd}' processes."
+                f" See https://launchpad.net/bugs/2025369"
             )
             processes = [p for p in processes if p != udevd]
 
@@ -250,14 +258,7 @@ class Check:
 
 def drop_kernel_processes(processes: list[str]) -> list[str]:
     """Return a list of processes with the kernel processes dropped."""
-    return [p for p in processes if not p.startswith("[") and not p.endswith("]")]
-
-
-def get_architecture() -> str:
-    """Return architecture of packages dpkg installs."""
-    cmd = ["dpkg", "--print-architecture"]
-    process = subprocess.run(cmd, capture_output=True, check=True, text=True)
-    return process.stdout.strip()
+    return [p for p in processes if not p.startswith("[") or not p.endswith("]")]
 
 
 def parse_net_conf(net_conf: str) -> dict[str, str]:

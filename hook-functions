@@ -57,89 +57,68 @@ add_modules_from_file()
 # whether a warning should be printed in that case.)
 add_firmware()
 {
-	local firmware fwloc
+	local ext firmware found_fwloc fwloc path
 
 	firmware="${1}"
 
-	if [ -e "${DESTDIR}/lib/firmware/updates/${version?}/${firmware}" ] \
-	|| [ -e "${DESTDIR}/lib/firmware/updates/${version?}/${firmware}.xz" ] \
-	|| [ -e "${DESTDIR}/lib/firmware/updates/${firmware}" ] \
-	|| [ -e "${DESTDIR}/lib/firmware/updates/${firmware}.xz" ] \
-	|| [ -e "${DESTDIR}/lib/firmware/${version}/${firmware}" ] \
-	|| [ -e "${DESTDIR}/lib/firmware/${version}/${firmware}.xz" ] \
-	|| [ -e "${DESTDIR}/lib/firmware/${firmware}" ] \
-	|| [ -e "${DESTDIR}/lib/firmware/${firmware}.xz" ]; then
-            return 0
-	fi
-
-	for fwloc in "/lib/firmware/updates/${version}/${firmware}" \
-		"/lib/firmware/updates/${firmware}" \
-		"/lib/firmware/${version}/${firmware}" \
-		"/lib/firmware/${firmware}"; do
-		if [ -e "${fwloc}" ]; then
-			copy_file firmware "${fwloc}"
-			return 0
-		elif [ -e "${fwloc}.xz" ]; then
-			copy_file firmware "${fwloc}.xz"
-			if command -v xz >/dev/null 2>&1; then
-				xz -d "${DESTDIR}/${fwloc}.xz"
+	for path in "updates/${version?}" "updates" "${version}" ""; do
+		for ext in ".xz" ".zst" ""; do
+			fwloc="/lib/firmware${path:+/}${path}/${firmware}${ext}"
+			if [ -e "${DESTDIR}${fwloc}" ]; then
+				# DESTDIR already contains a matching firmware file.
+				return 0
 			fi
-			return 0
-		fi
+			if [ -z "${found_fwloc}" ] && [ -e "${fwloc}" ]; then
+				found_fwloc="$fwloc"
+			fi
+		done
 	done
 
-	# We can't figure out where to get that firmware from.
-	return 1
+	if [ -z "${found_fwloc}" ]; then
+		# We can't figure out where to get that firmware from.
+		return 1
+	fi
+
+	copy_file firmware "${found_fwloc}"
 }
 
 # Add dependent modules + eventual firmware
+# If STAGE_KERNEL_MODULE_COPYING=1 is set, only collect the wanted kernel
+# modules. Call apply_add_modules to copy the kernel modules in this case.
 manual_add_modules()
 {
-	local prefix kmod options firmware
+	if [ "${STAGE_KERNEL_MODULE_COPYING-}" = 1 ]; then
+		for module in "$@"; do
+			echo "$module" >> "$__MODULES_TO_ADD"
+		done
+		return
+	fi
+	_call_dracut_install "$@"
+}
+
+# Copy the kernel modules that were staged in manual_add_modules
+apply_add_modules()
+{
+	# shellcheck disable=SC2046
+	_call_dracut_install $(sort -u "$__MODULES_TO_ADD")
+	true > "$__MODULES_TO_ADD"
+}
+
+_call_dracut_install()
+{
+	local dracut_verbose
 
 	if [ $# -eq 0 ]; then
 		return
 	fi
 
-	# modprobe --ignore-install inhibits processing of 'install'
-	# configuration lines, so that instead we will see 'insmod
-	# module.ko' as we want.  However it also means that 'softdep'
-	# configuration lines and embedded softdep information is not
-	# processed.  So we run twice, with and without this option.
-	# shellcheck disable=SC2034
-	{ modprobe --all --set-version="${version?}" --ignore-install --quiet --show-depends "$@";
-	  modprobe --all --set-version="${version}" --quiet --show-depends "$@"; } |
-	while read -r prefix kmod options ; do
-		if [ "${prefix}" != "insmod" ]; then
-			continue
-		fi
+	if [ "${verbose?}" = "y" ]; then
+		dracut_verbose=-v
+	fi
 
-		kmod_modname="${kmod##*/}"
-		kmod_modname="${kmod_modname%%.*}"
-
-		# Skip nouveau module
-		[ "${kmod_modname}" = "nouveau" ] && continue
-
-		copy_file module "${kmod}" || continue
-
-		# Add required firmware
-		for firmware in $(modinfo -k "${version}" -F firmware "${kmod}"); do
-			# Only print warning for missing fw of loaded module
-			# or forced loaded module
-			if ! add_firmware "$firmware"; then
-				# Only warn about missing firmware if
-				# /proc/modules exists
-				if [ ! -e /proc/modules ] ; then
-					continue
-				fi
-
-				if grep -q "^$kmod_modname\\>" /proc/modules "${CONFDIR}/modules"; then
-					echo "W: Possible missing firmware /lib/firmware/${firmware} for module ${kmod_modname}" >&2
-				fi
-				continue
-			fi
-		done
-	done
+	/usr/lib/dracut/dracut-install -D "$DESTDIR" --kerneldir "/lib/modules/${version?}" \
+		--firmwaredirs "/lib/firmware/updates/${version?}:/lib/firmware/updates:/lib/firmware/${version?}:/lib/firmware" \
+		${dracut_verbose-} -o -m "$@"
 }
 
 # manual_add_modules() takes care of adding firmware for things that were built
@@ -241,7 +220,7 @@ copy_exec() {
 	copy_file binary "${src}" "${target}" || return $(($? - 1))
 
 	# Copy the dependant libraries
-	for x in $(env --unset=LD_PRELOAD ldd "${src}" 2>/dev/null | sed -e '
+	for x in $(env --unset=LD_PRELOAD ldd "${src}" 2>/dev/null | grep -P '^\t' | sed -e '
 		/\//!d;
 		/linux-gate/d;
 		/=>/ {s/.*=>[[:blank:]]*\([^[:blank:]]*\).*/\1/};
@@ -316,6 +295,37 @@ copy_modules_dir()
 	done
 	# shellcheck disable=SC2086
 	manual_add_modules $modules
+}
+
+# Similar to copy_modules_dir, but only list the modules. Only available in Ubuntu 24.04
+_list_modules_in_dir()
+{
+	local kmod first exclude
+	local modules=
+	local dir="$1"
+	shift
+
+	if ! [ -d "${MODULESDIR}/${dir}" ]; then
+		return;
+	fi
+
+	# Build up an expression for find
+	first=true
+	for exclude in "$@"; do
+		# Change .ko suffix in exclusion to .ko*
+		if [ "${exclude%.ko}" != "${exclude}" ]; then
+			exclude="${exclude}*"
+		fi
+		$first && set --
+		set -- "$@" -name "${exclude}" -prune -o
+		first=false
+	done
+
+	# shellcheck disable=SC2044
+	for kmod in $(find "${MODULESDIR}/${dir}" "$@" -name '*.ko*' -printf '%f\n'); do
+		modules="$modules ${kmod%%.*}"
+	done
+	echo "$modules"
 }
 
 # walk /sys for relevant modules
@@ -466,7 +476,7 @@ dep_add_modules_mount()
 
 	if [ "${FSTYPE}" = "zfs" ]; then
 		manual_add_modules "${FSTYPE}"
-
+ 
 		# ZFS uses the name of a filesystem instead of a device. Find
 		# the devices that make up the pool containing the specified
 		# filesystem, and add the appropriate driver for each device.
@@ -616,11 +626,6 @@ dep_add_modules()
 		modules="$modules virtio_pci virtio_mmio"
 	fi
 
-	if [ -e /sys/bus/i2o/devices/ ]; then
-		force_load i2o_block
-		force_load i2o_config
-	fi
-
 	if [ -e /sys/bus/ps3_system_bus/ ]; then
 		modules="$modules ps3disk ps3rom ps3-gelic ps3_sys_manager"
 	fi
@@ -640,12 +645,23 @@ dep_add_modules()
 # The modules "most" classes added per default to the initramfs
 auto_add_modules()
 {
-	local arg
+	local arg blockfuncs exclude exclude_dir
+	local block_modules=
 	local modules=
 
 	if [ "$#" -eq 0 ] ; then
-		set -- base hw_random net ide scsi block ata i2o dasd ieee1394 firewire mmc usb_storage fb virtual nx
+		set -- base hw_random net ide scsi block ata dasd firewire mmc usb_storage fb virtual nx
 	fi
+
+	blockfuncs="ahci_platform_get_resources|ata_scsi_ioctl|scsi_add_host|blk_cleanup_queue"
+	blockfuncs="${blockfuncs}|register_mtd_blktrans|scsi_esp_register|register_virtio_device"
+	blockfuncs="${blockfuncs}|usb_stor_disconnect|mmc_add_host|sdhci_add_host|scsi_add_host_with_dma"
+	blockfuncs="${blockfuncs}|blk_mq_alloc_disk|blk_mq_alloc_request|blk_mq_destroy_queue|blk_cleanup_disk"
+	case "$DPKG_ARCH" in
+	arm64|armel|armhf|riscv64)
+		blockfuncs="${blockfuncs}|dw_mc_probe|dw_mci_pltfm_register|nvme_init_ctrl"
+	;;
+	esac
 
 	for arg in "$@" ; do
 		case "$arg" in
@@ -659,124 +675,149 @@ auto_add_modules()
 			modules="$modules vfat nls_cp437 nls_iso8859-1"
 
 			# Include most USB host and dual-role drivers
-			copy_modules_dir kernel/drivers/usb/host \
-				hwa-hc.ko sl811_cs.ko sl811-hcd.ko \
-				u132-hcd.ko whci-hcd.ko
-			copy_modules_dir kernel/drivers/usb/c67x00
-			copy_modules_dir kernel/drivers/usb/chipidea
-			copy_modules_dir kernel/drivers/usb/dwc2
-			copy_modules_dir kernel/drivers/usb/dwc3
-			copy_modules_dir kernel/drivers/usb/isp1760
-			copy_modules_dir kernel/drivers/usb/musb
-			copy_modules_dir kernel/drivers/usb/renesas_usbhs
-			copy_modules_dir kernel/drivers/usb/typec/ucsi
-			# also STM's STUSB160x type-C controller for Tegra IGX
-			modules="$modules stusb160x"
+			modules="$modules ehci-hcd ehci-pci ehci-platform ohci-hcd ohci-pci"
+			modules="$modules uhci-hcd usbhid xhci-hcd xhci-pci xhci-plat-hcd"
+			modules="$modules =drivers/usb/typec"
+			modules="$modules =drivers/usb/c67x00"
+			modules="$modules =drivers/usb/renesas_usbhs"
 			# and any extcon drivers for USB
 			modules="$modules extcon-usb-gpio extcon-usbc-cros-ec"
-			# Add the axp20x_usb_power power supply driver,
-			# required to initialize the USB host controllers
-			# on a number of armhf systems
-			modules="$modules axp20x_usb_power"
 
 			# Include all keyboard drivers and all HID drivers
 			# unless we're sure they don't support keyboards.
 			# hid-*ff covers various game controllers with
 			# force feedback.
-			copy_modules_dir kernel/drivers/input/keyboard
-			copy_modules_dir kernel/drivers/hid \
+			modules="$modules =drivers/input/keyboard"
+			modules="$modules $(_list_modules_in_dir kernel/drivers/hid \
 				'hid-*ff.ko' hid-a4tech.ko hid-cypress.ko \
 				hid-dr.ko hid-elecom.ko hid-gyration.ko \
 				hid-icade.ko hid-kensington.ko hid-kye.ko \
-				hid-lcpower.ko hid-magicmouse.ko \
-				hid-multitouch.ko hid-ntrig.ko \
+				hid-lcpower.ko hid-magicmouse.ko hid-ntrig.ko \
 				hid-petalynx.ko hid-picolcd.ko hid-pl.ko \
 				hid-ps3remote.ko hid-quanta.ko \
 				'hid-roccat-ko*.ko' hid-roccat-pyra.ko \
 				hid-saitek.ko hid-sensor-hub.ko hid-sony.ko \
 				hid-speedlink.ko hid-tivo.ko hid-twinhan.ko \
 				hid-uclogic.ko hid-wacom.ko hid-waltop.ko \
-				hid-wiimote.ko hid-zydacron.ko
+				hid-wiimote.ko hid-zydacron.ko)"
 			# needed to access keyboard on some ChromeOS devices
 			modules="$modules cros_ec_spi"
+			# needed to access keyboard on MacBook Pro 2017
+			modules="$modules intel_lpss_pci spi_pxa2xx_platform"
+			# needed for keyboard on Surface Laptop 4
+			modules="$modules surface_aggregator_registry"
+
+			# For Linux console access
+			modules="$modules =drivers/tty/serial"
 
 			# Any of these might be needed by other drivers
-			copy_modules_dir kernel/drivers/bus
-			copy_modules_dir kernel/drivers/clk
-			copy_modules_dir kernel/drivers/gpio
-			copy_modules_dir kernel/drivers/i2c/busses
-			copy_modules_dir kernel/drivers/i2c/muxes
-			copy_modules_dir kernel/drivers/mfd
-			copy_modules_dir kernel/drivers/pci/controller
-			copy_modules_dir kernel/drivers/phy
-			copy_modules_dir kernel/drivers/pinctrl
-			copy_modules_dir kernel/drivers/regulator
-			copy_modules_dir kernel/drivers/reset
-			copy_modules_dir kernel/drivers/spi
-			copy_modules_dir kernel/drivers/usb/phy
+			modules="$modules =drivers/bus"
+			modules="$modules =drivers/i2c/muxes"
+			modules="$modules =drivers/pci/controller"
+			modules="$modules =drivers/pinctrl"
 
-			# Needed for periodic fsck
-			copy_modules_dir kernel/drivers/rtc
+			case "$DPKG_ARCH" in
+			arm64|armel|armhf|riscv64)
+				modules="$modules $(_list_modules_in_dir kernel/drivers/usb/host \
+					hwa-hc.ko sl811_cs.ko sl811-hcd.ko \
+					u132-hcd.ko whci-hcd.ko)"
+				modules="$modules =drivers/clk"
+				modules="$modules =drivers/i2c/busses"
+				modules="$modules =drivers/gpio"
+				modules="$modules =drivers/mfd"
+				modules="$modules =drivers/nvmem"
+				modules="$modules =drivers/phy"
+				modules="$modules =drivers/power"
+				modules="$modules =drivers/regulator"
+				modules="$modules =drivers/reset"
+				modules="$modules =drivers/spi"
+				modules="$modules =drivers/spmi"
+				modules="$modules =drivers/soc"
+				modules="$modules =drivers/usb/chipidea"
+				modules="$modules =drivers/usb/dwc2"
+				modules="$modules =drivers/usb/dwc3"
+				modules="$modules =drivers/usb/isp1760"
+				modules="$modules =drivers/usb/musb"
+				modules="$modules =drivers/usb/phy"
+
+				# Needed for periodic fsck
+				modules="$modules =drivers/rtc"
+
+				# Add the axp20x_usb_power power supply driver,
+				# required to initialize the USB host controllers
+				# on a number of armhf systems
+				modules="$modules axp20x_usb_power"
+			;;
+			esac
 		;;
 		hw_random)
-			copy_modules_dir kernel/drivers/char/hw_random
+			modules="$modules =drivers/char/hw_random"
 		;;
 		net)
-			copy_modules_dir kernel/drivers/net \
-				appletalk arcnet bonding can dummy.ko \
-				hamradio hippi ifb.ko irda macvlan.ko \
-				macvtap.ko pcmcia sb1000.ko team tokenring \
-				tun.ko veth.ko wan wimax wireless \
-				cdc_mbim.ko cdc-phonet.ko hso.ko huawei_cdc_ncm.ko ipheth.ko kalmia.ko \
-				lg-vl600.ko qmi_wwan.ko sierra_net.ko cdc_subset.ko gl620a.ko \
-				net1080.ko plusb.ko cx82310_eth.ko zaurus.ko \
-				xen-netback.ko
-			modules="$modules 8021q"
+			exclude="cdc_mbim|ipheth|qmi_wwan|sierra_net|veth|xen-netback"
+			exclude_dir="isdn|net/ethernet|net/phy|net/team|uwb|wan|wireless"
+			_call_dracut_install -P "/((${exclude})\.ko|(${exclude_dir})/)" \
+				-s "eth_type_trans|register_virtio_device|usbnet_open" \
+				"=drivers/net"
+			modules="$modules =drivers/net/ethernet =drivers/net/mdio"
+			modules="$modules =drivers/net/phy 8021q ipvlan"
 		;;
 		ide)
-			copy_modules_dir kernel/drivers/ide
+			modules="$modules =drivers/ide"
 		;;
 		mmc)
-			copy_modules_dir kernel/drivers/mmc
+			modules="$modules =drivers/mmc"
 		;;
 		scsi)
-			copy_modules_dir kernel/drivers/scsi
-			modules="$modules mptfc mptsas mptscsih mptspi zfcp"
+			_call_dracut_install -s "${blockfuncs}|iscsi_register_transport" \
+				"=drivers/scsi"
+			modules="$modules be2iscsi bnx2i cxgb3i cxgb4i qedi qla4xxx"
+			modules="$modules scsi_dh_alua scsi_dh_emc scsi_dh_rdac"
+			modules="$modules mptfc mptsas mptscsih mptspi zfcp =drivers/ufs"
+			# scsi_transport_srp should have been pulled in by =drivers/scsi
+			modules="$modules scsi_transport_srp"
 		;;
 		ata)
-			copy_modules_dir kernel/drivers/ata
+			block_modules="$block_modules =drivers/ata"
 		;;
 		block)
-			copy_modules_dir kernel/drivers/block
-			copy_modules_dir kernel/drivers/nvme
-			copy_modules_dir kernel/drivers/nvdimm
-			copy_modules_dir kernel/drivers/dax
-			copy_modules_dir kernel/drivers/acpi/nfit
-
-			modules="$modules vmd"
+			block_modules="$block_modules =drivers/block =drivers/nvme"
+			block_modules="$block_modules =drivers/dax vmd"
+			_call_dracut_install -s nvdimm_bus_register "=drivers/nvdimm" "=drivers/acpi"
+			modules="$modules dax_pmem nd_pmem"
 		;;
 		ubi)
 			modules="$modules deflate zlib lzo ubi ubifs"
 		;;
-		ieee1394)
-			modules="$modules ohci1394 sbp2"
-		;;
 		firewire)
 			modules="$modules firewire-ohci firewire-sbp2"
-		;;
-		i2o)
-			modules="$modules i2o_block"
 		;;
 		dasd)
 			modules="$modules dasd_diag_mod dasd_eckd_mod dasd_fba_mod"
 		;;
 		usb_storage)
-			copy_modules_dir kernel/drivers/usb/storage
+			modules="$modules =drivers/usb/storage"
 		;;
 		fb)
 			# For machines that don't have a generic framebuffer device.
-			modules="$modules rockchipdrm pwm-cros-ec pwm_bl panel-simple"
-			modules="$modules analogix-anx6345 pwm-sun4i sun4i-drm sun8i-mixer"
+			modules="$modules rockchipdrm pwm-cros-ec pwm_bl pwm-rockchip panel-simple"
+			modules="$modules analogix-anx6345 pwm-sun4i sun4i-drm sun8i-mixer panel-edp"
+			# For panel/backlight on MNT Reform 2
+			modules="$modules pwm_imx27 nwl-dsi ti-sn65dsi86 imx-dcss"
+			modules="$modules mux-mmio mxsfb imx8mq-interconnect"
+		;;
+		fbdev)
+			# Video drivers from drivers/video/fbdev
+			modules="$modules efifb fbcon simplefb vesafb vga16fb"
+		;;
+		minimal_drm)
+			# Minimal required set of Direct Rendering Manager (DRM) drivers for video
+			modules="$modules =drivers/gpu/drm/tiny vboxvideo virtio-gpu"
+			# if there is a privacy screen then its driver must be loaded before the
+			# kms driver will bind, otherwise its probe() will return -EPROBE_DEFER
+			# So include privacy screen providers
+			# atm all providers live under drivers/platform/x86
+			_call_dracut_install -s "drm_privacy_screen_register" "=drivers/platform/x86"
 		;;
 		virtual)
 			# Hyper-V
@@ -792,6 +833,10 @@ auto_add_modules()
 
 	# shellcheck disable=SC2086
 	manual_add_modules $modules
+	if [ -n "$block_modules" ]; then
+		# shellcheck disable=SC2086
+		_call_dracut_install -s "${blockfuncs}" $block_modules
+	fi
 }
 
 # 'depmod' only looks at symbol dependencies and the 'softdep' module
@@ -841,7 +886,7 @@ hidden_dep_add_modules()
 				echo pl330
 				;;
 			dw_mmc-rockchip)
-				echo rockchip-io-domain
+				echo rockchip-io-domain io-domain
 				;;
 			esac
 		done
@@ -870,7 +915,7 @@ set_initlist()
 		[ "${si_x}" = "${initdir}/*" ] && return
 
 		# only allow variable name chars
-		case ${si_x#"${initdir}"/} in
+		case "${si_x#"${initdir}"/}" in
 		*[![:alnum:]\._-]*)
 			[ "${verbose}" = "y" ] \
 			&& echo "$si_x ignored: not alphanumeric or '_' file" >&2
@@ -955,7 +1000,7 @@ call_scripts()
 		if [ "$ec" -ne 0 ]; then
 			echo "E: ${initdir}/${cs_x} failed with return $ec." >&2
 			# only errexit on mkinitramfs
-			[ -n "${version}" ] && exit $ec
+			[ -n "${version}" ] && exit "$ec"
 		fi
 		# allow boot scripts to modify exported boot parameters
 		if [ -e /conf/param.conf ]; then
@@ -982,15 +1027,11 @@ run_scripts_optional()
 }
 
 add_dns() {
-	local destdir="$1" nsswitch="" lib="" libdir="" f="" d=""
+	local destdir="$1" multiarch_dir="" nsswitch="" lib="" f=""
 	# find the multiarch lib dir (for example /lib/x86_64-linux-gnu)
-	# by finding a directory with libc.so.6.
-	for d in /lib/* /lib; do
-		for f in "$d"/libc.so.?; do [ -f "$f" ] && break; done
-		[ -f "$f" ] && libdir="$d" && break
-	done
-	if [ -z "$libdir" ]; then
-		echo "WARNING: no libdir found for adding dns." 1>&2
+	multiarch_dir=$(ldd /bin/sh | sed -En 's;^.*/lib(/lib[^/]*prof)?/([^/]+)/libc\.so\..*$;\2;p')
+	if [ -z "$multiarch_dir" ]; then
+		echo "WARNING: no multiarch_dir found for adding dns." 1>&2
 		return
 	fi
 	nsswitch="$destdir/etc/nsswitch.conf"
@@ -1000,13 +1041,13 @@ add_dns() {
 	local found=""
 	for lib in libnss_files libnss_dns libresolv; do
 		found=""
-		for f in "$libdir/$lib.so".?; do
+		for f in "/lib/$multiarch_dir/$lib.so".?; do
 			[ -e "$f" ] || continue
 			[ "$verbose" = "y" ] && echo "dns: $lib: $f"
 			copy_file library "$f"
 			found="$f"
 		done
-		[ -n "$found" ] || echo "WARNING: no $libdir/$lib.? file" 1>&2
+		[ -n "$found" ] || echo "WARNING: no /lib/$multiarch_dir/$lib.? file" 1>&2
 	done
 	return 0
 }

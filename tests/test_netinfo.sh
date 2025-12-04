@@ -74,6 +74,8 @@ run_netplan_generate() {
 
    mkdir -p $results_d/lib/
    cp -r $expected_d $results_d/lib
+   # Netplan configuration should NOT be accessible by others.
+   find "$results_d/lib" -name '*.yaml' -exec chmod go-rwx {} \;
    netplan generate --root-dir $results_d
    r=$?
    if [ $r -eq 0 ]; then

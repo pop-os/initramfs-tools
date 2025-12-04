@@ -65,10 +65,17 @@ case "${SWAPTYPE}" in
 		# that less likely.
 		sleep 0.1
 	fi
-
-	echo "${MAJMIN}" > /sys/power/resume
+	;;
+    swap)
+	# Valid swap partition, but no resume image.
+	;;
+    *)
+	# Not a valid swap partition. Ignoring it.
+	exit 0
 	;;
 esac
+
+echo "${MAJMIN}" > /sys/power/resume
 
 if "$use_plymouth"; then
 	# plymouth hide-message does not work yet

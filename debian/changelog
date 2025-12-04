@@ -1,48 +1,572 @@
-initramfs-tools (0.140ubuntu13.5pop0) jammy; urgency=medium
+initramfs-tools (0.142ubuntu25.5) noble; urgency=medium
 
-  * Pop!_OS patches
+  * configure_networking: Configure IPv4 or IPv6 based on iBFT IP address
+    (LP: #2091904)
+  * test:
+    - d/tests/check-log: import improvements from 0.145ubuntu1
+    - support setting a disk label in build_fs_ext2
+    - test-common: move disc logic out of _run_qemu
+    - move wait_for_server_startup to test-common
+    - check for QEMU PID in wait_for_server_startup
+    - Add qemu-net-iscsi autopkgtest for iBFT test cases
 
- -- Jeremy Soller <jeremy@system76.com>  Fri, 20 Jun 2025 09:36:33 -0600
+ -- Benjamin Drung <bdrung@ubuntu.com>  Fri, 07 Feb 2025 15:21:59 +0100
 
-initramfs-tools (0.140ubuntu13.5) jammy; urgency=medium
+initramfs-tools (0.142ubuntu25.4) noble; urgency=medium
 
-  * Fix configuring BOOTIF when using iSCSI (LP: #2056187)
-  * Backport autopkgtest improvements from version 0.142ubuntu23 to run the
-    test on all architectures and to check more results from qemu-net
+  * hook-functions: Call _call_dracut_install instead of manual_add_modules
+    when using module filters to fix the regression from previous version
+    (LP: #2081700)
 
- -- Benjamin Drung <bdrung@ubuntu.com>  Tue, 19 Mar 2024 13:06:27 +0100
+ -- Benjamin Drung <bdrung@ubuntu.com>  Tue, 24 Sep 2024 12:49:29 +0200
 
-initramfs-tools (0.140ubuntu13.4) jammy; urgency=medium
+initramfs-tools (0.142ubuntu25.3) noble; urgency=medium
 
-  * hook-functions: add stusb160x kernel module for Tegra IGX (LP: #2027636)
+  * hook-functions: Include all UFS storage drivers (LP: #2081020)
+  * reduce number of dracut-install calls: stage all kernel module copying
+    when running scripts in /usr/share/initramfs-tools/hooks and copy
+    all kernel modules in one go afterwards. (LP: #2081334)
+  * Fix build failure with netplan.io 1.0.1-1ubuntu2~24.04.1:
+    - test: Make netplan test configs not accessible by others
+    - Build-depend on udev for udevadm used by netplan
+  * test: Increase QEMU timeout to 120s
 
- -- Loïc Minier <loic.minier@ubuntu.com>  Tue, 25 Jul 2023 11:54:44 +0200
+ -- Benjamin Drung <bdrung@ubuntu.com>  Fri, 20 Sep 2024 20:32:24 +0200
 
-initramfs-tools (0.140ubuntu13.3) jammy; urgency=medium
+initramfs-tools (0.142ubuntu25.2) noble; urgency=medium
 
-  [ Loïc Minier ]
-  * Include kernel/drivers/usb/typec/ucsi with MODULES=most along with other
-    USB storage drivers; LP: #2027636.
+  [ Jeffery To ]
+  * Fix resume failure due to resume=UUID=... in certain cases (LP: #1769297)
+  * hooks/resume: Fix resume device type check
 
   [ Benjamin Drung ]
+  * resume: always write valid resume device to /sys/power/resume (LP: #1769297)
+  * mkinitramfs: Resolve hidden dependencies after all modules were copied
+  * reduce number of dracut-install calls: group dracut-install calls for
+    block modules in auto_add_modules and use copy_modules_dir code instead
+    of dracut-install calls (LP: #2065180)
+
+ -- Benjamin Drung <bdrung@ubuntu.com>  Fri, 05 Jul 2024 09:58:14 +0200
+
+initramfs-tools (0.142ubuntu25.1) noble; urgency=medium
+
+  * configure_network: Call dhcpcd with --nolink --noipv4ll to succeed getting
+    a DHCP lease on the first try and avoid a 30 seconds delay (LP: #2065037)
+
+ -- Benjamin Drung <bdrung@ubuntu.com>  Fri, 10 May 2024 15:03:48 +0200
+
+initramfs-tools (0.142ubuntu25) noble; urgency=medium
+
+  * Copy only dhcpcd user into initramfs /etc/passwd (LP: #2059739)
+  * autopkgtest: Ignore remainig udev processes also on amd64
+
+ -- Benjamin Drung <bdrung@ubuntu.com>  Wed, 17 Apr 2024 17:55:09 +0200
+
+initramfs-tools (0.142ubuntu24) noble; urgency=medium
+
+  * No-change rebuild for CVE-2024-3094
+
+ -- Steve Langasek <steve.langasek@ubuntu.com>  Sun, 31 Mar 2024 00:08:30 +0000
+
+initramfs-tools (0.142ubuntu23) noble; urgency=medium
+
+  [ Daniel van Vugt ]
+  * hooks/framebuffer: Only add simple/tiny framebuffer drivers. This is to
+    limit the size of initrd when FRAMEBUFFER=y is soon enabled for desktop
+    installations (LP: #1970069, #1869655).
+
+  [ Benjamin Drung ]
+  * autopkgtest: Increase QEMU timeouts on arm64/armhf
+  * hooks/framebuffer:
+    - Move adding framebuffer drivers into auto_add_modules
+    - Drop looking in $MODULESDIR/initrd/ for kernel modules
+    - Support MODULES=dep in framebuffer hook
+
+ -- Benjamin Drung <bdrung@ubuntu.com>  Thu, 21 Mar 2024 10:57:54 +0100
+
+initramfs-tools (0.142ubuntu22) noble; urgency=medium
+
+  * autopkgtest: update systemd-udevd path from /lib to /usr/lib
+
+ -- Benjamin Drung <bdrung@ubuntu.com>  Thu, 14 Mar 2024 11:03:03 +0100
+
+initramfs-tools (0.142ubuntu21) noble; urgency=medium
+
+  [ Benjamin Drung ]
+  * configure_networking:
+    - Increase minimum timeout to 30 seconds
+    - Fix configuring BOOTIF when using iSCSI (LP: #2056187)
+    - Set interface MTU if provided by the DHCP server (LP: #2056194)
+    - log sleep durations before retries
+  * Copy /etc/passwd into the initramfs to allow dhcpcd running as dhcpcd user
+  * Replace obsolete pkg-config build-dependency by pkgconf
+
+  [ Dan Bungert ]
+  * Restore nvdimm and dax pmem-related modules (LP: #1981385)
+
+ -- Benjamin Drung <bdrung@ubuntu.com>  Mon, 11 Mar 2024 23:50:43 +0100
+
+initramfs-tools (0.142ubuntu20) noble; urgency=medium
+
+  [ Benjamin Drung ]
+  * Fix determing multiarch dir when using libc6-prof's libc.so.6 (LP: #2054171)
+  * autopkgtest: Use qemu-system-$(dpkg --print-architecture)
+
+  [ Adam Vodopjan ]
+  * unmkinitramfs: add count_bytes iflag in a dd call (LP: #2055055)
+
+  [ Florent 'Skia' Jacquet ]
+  * d/t/test-common: fix finding klibc.so
+
+ -- Benjamin Drung <bdrung@ubuntu.com>  Sat, 02 Mar 2024 17:08:38 +0100
+
+initramfs-tools (0.142ubuntu19) noble; urgency=medium
+
+  * copy_exec: ignore ldd output lines not starting with a tab (LP: #2046570)
+
+ -- Benjamin Drung <bdrung@ubuntu.com>  Tue, 19 Dec 2023 15:28:14 +0100
+
+initramfs-tools (0.142ubuntu18) noble; urgency=medium
+
+  * Let initramfs-tools-core depend on e2fsprogs because fixrtc hook uses
+    /sbin/dumpe2fs (LP: #1831747)
+
+ -- Benjamin Drung <bdrung@ubuntu.com>  Fri, 08 Dec 2023 00:15:22 +0100
+
+initramfs-tools (0.142ubuntu17) noble; urgency=medium
+
+  * install hid-multitouch module for Surface Pro 4 keyboard (LP: #1772094)
+  * test: log build_initramfs calls
+
+ -- Benjamin Drung <bdrung@ubuntu.com>  Wed, 15 Nov 2023 19:16:46 +0100
+
+initramfs-tools (0.142ubuntu16) noble; urgency=medium
+
+  * Install nvmem, soc, power, and System Power Management Interface (SPMI)
+    kernel modules on ARM/RISC-V for MediaTek boards (LP: #2038512)
+  * Install intel_lpss_pci and spi_pxa2xx_platform kernel modules for keyboard
+    on MacBook Pro 2017 (LP: #2042710)
+  * Install surface_aggregator_registry for keyboard on Surface Laptop 4
+    (LP: #2007050)
+  * framebuffer: Add privacy screen modules to the initrd (LP: #1954320)
+
+ -- Benjamin Drung <bdrung@ubuntu.com>  Tue, 14 Nov 2023 19:34:42 +0100
+
+initramfs-tools (0.142ubuntu15) mantic; urgency=medium
+
+  * scripts/functions: do not fail to configure networking too quickly. In
+    particular make sure an unsuccessful attempt to run DHCP takes at least
+    $ROUNDTTT seconds. (LP: #2037202)
+
+ -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Wed, 04 Oct 2023 12:02:13 +1300
+
+initramfs-tools (0.142ubuntu14) mantic; urgency=medium
+
+  * mkinitramfs: Skip compression support check if /boot/config-${version}
+    is missing (LP: #2018171)
+
+ -- Benjamin Drung <bdrung@ubuntu.com>  Tue, 26 Sep 2023 00:49:57 +0200
+
+initramfs-tools (0.142ubuntu13) mantic; urgency=medium
+
+  * Support usr-merged library path when detecting mutliarch dir (LP: #2037156)
+
+ -- Benjamin Drung <bdrung@ubuntu.com>  Sat, 23 Sep 2023 13:45:37 +0200
+
+initramfs-tools (0.142ubuntu12) mantic; urgency=medium
+
+  * Change dracut-core dependency to newly created dracut-install package
+    (LP: #2031304)
+  * autopkgtest:
+    - Explicitly specify supported architectures
+    - Enable KVM if available (not available on Ubuntu runners)
+    - log qemu parameters
+
+ -- Benjamin Drung <bdrung@ubuntu.com>  Wed, 23 Aug 2023 10:58:40 +0200
+
+initramfs-tools (0.142ubuntu11) mantic; urgency=medium
+
+  * Use dracut-install in manual_add_modules to speed up mkinitramfs
+    significantly (LP: #2031185)
+  * Install tty/serial kernel modules. Dracut is doing the same. (LP: #2019435)
+  * Harmonize kernel module installation with dracut's behavior (LP: #2031841):
+    - Use the symbol regex from dracut-install to reduce the unnessary block
+      and net kernel modules.
+    - Install all usb/typec kernel modules instead of cherry-picking some.
+    - Do not install ARM/RISCV specific modules on other architectures.
+
+ -- Benjamin Drung <bdrung@ubuntu.com>  Fri, 18 Aug 2023 03:44:36 +0200
+
+initramfs-tools (0.142ubuntu10) mantic; urgency=medium
+
+  * Fix resolving wrong multiarch libdir in dhcpcd hook (LP: #2031363)
+
+ -- Benjamin Drung <bdrung@ubuntu.com>  Tue, 15 Aug 2023 20:41:22 +0200
+
+initramfs-tools (0.142ubuntu9) mantic; urgency=medium
+
+  * Replace dhclient by dhcpcd (LP: #2024164)
+  * Merge consecutive manual_add_modules calls into one
+
+ -- Benjamin Drung <bdrung@ubuntu.com>  Mon, 14 Aug 2023 18:09:08 +0200
+
+initramfs-tools (0.142ubuntu8) mantic; urgency=medium
+
+  [ Benjamin Drung ]
+  * mkinitramfs:
+    - Do not store intermediate main cpio archive
+    - Put compressed kernel modules and firmware files in an uncompressed cpio
+      (LP: #2028567)
+  * Add support for zstd-compressed firmware
+  * test: Ignore remaining systemd-udevd processes on arm64 as well
+  * Update lintian overrides to format for lintian 2.116.3
+
+  [ Loïc Minier ]
+  * hook-functions: add stusb160x kernel module for Tegra IGX (LP: #2027636)
+
+ -- Benjamin Drung <bdrung@ubuntu.com>  Wed, 26 Jul 2023 14:05:19 +0200
+
+initramfs-tools (0.142ubuntu7) mantic; urgency=medium
+
+  * Extend autopkgtest to also run qemu on arm64, armhf, ppc64el, and s390x.
+    (see upstream merge request !80)
+
+ -- Benjamin Drung <bdrung@ubuntu.com>  Wed, 05 Jul 2023 21:54:53 +0200
+
+initramfs-tools (0.142ubuntu6) mantic; urgency=medium
+
+  * To ease testing, always use the link-layer address as DHCP unique
+    identifier (DUID-LL) for DHCPv6.
+  * Drop direct dependency on isc-dhcp-client (it's not available on i386)
+  * Add qemu-net-dnsmasq autopkgtest to test DHCPv6
+
+ -- Benjamin Drung <bdrung@ubuntu.com>  Fri, 23 Jun 2023 21:12:21 +0200
+
+initramfs-tools (0.142ubuntu5) mantic; urgency=medium
+
+  * scripts/functions: drop needing basename in initramfs
+  * Bring up networking if ip or ip6 is specified on cmdline.
+    Directly depend on isc-dhcp-client for that.
+    (Closes: #789067, LP: #1463846) (see merge request !77)
+  * Extent qemu-net autopkgtest to check more cases and results
+  * Move git repository under the ~ubuntu-core-dev umbrella
+
+ -- Benjamin Drung <bdrung@ubuntu.com>  Fri, 16 Jun 2023 15:19:50 +0200
+
+initramfs-tools (0.142ubuntu4) mantic; urgency=medium
+
+  * Include kernel/drivers/usb/typec/ucsi with MODULES=most along with other
+    USB-C storage drivers.
+
+ -- Loïc Minier <loic.minier@ubuntu.com>  Thu, 08 Jun 2023 17:49:02 +0000
+
+initramfs-tools (0.142ubuntu3) mantic; urgency=medium
+
   * Port the net autopkgtest to the common test framework. This drops
     depending on downloading a cloud image from the Internet and reduces
-    the execution time from 3:19 min down to 0:57 min. (LP: #2027575)
+    the execution time from 3:19 min down to 0:57 min.
+  * test: Increase minimum ext2 block count (merge request !75)
+  * Fix shellcheck SC1010 and SC2015
 
- -- Benjamin Drung <bdrung@ubuntu.com>  Thu, 13 Jul 2023 13:12:19 +0200
+ -- Benjamin Drung <bdrung@ubuntu.com>  Mon, 05 Jun 2023 12:23:21 +0200
 
-initramfs-tools (0.140ubuntu13.2) jammy; urgency=medium
+initramfs-tools (0.142ubuntu2) lunar; urgency=medium
+
+  * Fix/ignore ShellCheck findings. Mostly taken from Debian MR !73.
+    Thanks to Damian Szuberski.
+
+ -- Benjamin Drung <bdrung@ubuntu.com>  Thu, 06 Apr 2023 17:41:32 +0200
+
+initramfs-tools (0.142ubuntu1) lunar; urgency=medium
+
+  * Merge from Debian unstable (LP: #1988418). Remaining changes:
+    - Make busybox-initramfs a real runtime dependency, fixing kernel install
+      failures with cryptsetup
+    - support mounting of loopback devices via loop*= parameters
+    - Drop hooks/keymap, scripts/init-top/keymap, and associated code;
+      console-setup takes care of this in Ubuntu.
+    - Add a new 'fixrtc' script that tries to set the system clock forward
+      based on the last mount time of the root disk; without this kludge,
+      systems without a working RTC will end up in a perpetual reboot loop.
+    - Trim leading whitespaces in dumpe2fs output so date command is happy in
+      the fixrtc script
+    - scripts/local-premount/fixrtc: ensure that the fixrtc script doesn't
+      produce extraneous output from wait-for-root and date
+    - Set hostname at boot, for the benefit of mdadm autoassembly.
+    - Allow scripts and hooks to specify OPTION=VAR, and unless VAR is set to
+      something other than "n", the script will not be included.
+    - Restore the framebuffer hook and script, copying KMS and other
+      framebuffer drivers into the initramfs, but make them optional; you need
+      to set FRAMEBUFFER=y for these to be included.
+    - Add hwaddr= alias for BOOTIF= for compatibility.
+    - Automatically blacklist vga16fb when vga= or video= specified on kernel
+      command-line.
+    - add squashfs to list of 'most' modules
+    - Add vfat and nls modules to the initramfs.
+    - Add Hyper-V paravirtualised device drivers to the initramfs to allow
+      booting of stock images in a Hyper-V guest.
+    - ppc64el: enable PowerPC NX Crypto Coprocessor
+    - Revised mountroot failure support.  This is now deprecated and
+      effectively removed.  However, to prevent breakage in other packages the
+      add_mountroot_fail_hook function is still present as an empty stub.
+    - resume: only resume when the partition contains a resume image
+    - Fix resuming a hibernate session from a swapfile
+    - Add new initramfs-tools-bin package containing a binary that uses
+      libudev to wait for udev to create the udev device, or wait for udev to
+      finish processing if we catch it in the act, and returns the filesystem
+      type as already probed by udev.
+    - local_device_setup: use wait-for-root if it supports the device alias
+      type
+    - debian/control: update Vcs-* links for Ubuntu.
+    - Add support for uppercase and lowercase uuids.
+    - init: Don't interpret "rootdelay" as a static sleep.
+    - src/wait-for-root.c, scripts/local: add explicit support for PARTUUID, a
+      syntax we may prefer for images that might boot without an initramfs.
+    - scripts/local: Let rootdelay determine the wait-for-root timeout.
+    - Increase rootdelay to 180s on powerpc/ppc64/ppc64el
+    - Support roottimeout= as the authoritative name for rootdelay= since the
+      Ubuntu interpretation of rootdelay is *not* a delay and this causes
+      inconsistent behavior depending on whether the kernel or an initramfs is
+      interpreting it.
+    - scripts/functions: by default, when setting up networking, use dhclient
+      if we're asked to do DHCP explicitly, or if we otherwise are expected to
+      do things automatically.
+    - scripts/functions: make sure we can try to start all available and
+      suitable interfaces if ip= isn't set when setting up the network, and
+      exit as soon as we get an IP address.
+    - split out IPv6 options in its own cmdline parameter: ip6= ; always use
+      dhclient in this case if the value set is anything other than 'off' or
+      'none'. Furthermore, parse anything other than 'on', 'dhcp' or 'any' as
+      the name of an interface.
+    - rework the stop conditions so that we properly handle the ROUNDTTT loop,
+      timing out after a short period of time and trying again after a short
+      sleep.
+    - add a 'done' parameter for both ip= and ip6= so that we can properly
+      exit the ROUNDTTT loop once we know that either there is no work to do,
+      or that we've achieved what we wanted (that is, to bring up IPv4, IPv6,
+      or possibly both).
+    - Just let dhclient scan the interfaces if none is specified for IPv6.
+      (previously unnoted)
+    - Do not handle ip=rarp specially (ipconfig hasn't supported it for some
+      time)
+    - Call dhclient in simple cases for IPv4 (this makes some small observable
+      changes -- for example ip=bootp will now make a DHCP request too -- but
+      nothing that seems important).
+    - Do not let dhclient processes hang around past the pivot and have them
+      respect the shorter timeouts ipconfig was given.
+    - Only source ipv4 config in configure_networking() if it exists.
+    - hook-functions, mkinitramfs, scripts/functions: support usage of dns
+      after configure_networking.
+    - Run unittests during autopkgtests.
+    - Add some autopkgtests for the network configuration processing.
+    - scripts/functions: write netplan config files to /run/netplan for
+      network devices configured with configure_networking.
+    - Adjust testsuite for correct expected netplan output.
+    - Add tests to parse netplan.yaml with netplan generate.
+    - Skip setting mac-address, unless unsupported unpredictable netnames are
+      used.
+    - scripts/functions:_render_netplan(): Make configure_networking() more
+      resilient when called by set -e scripts.
+    - scripts/functions: include a new option to skip enslaved network
+      devices.
+    - Auto activate qeth devices on s390x hosts, when using ip= ip6= command
+      lines.
+    - Add support for creating VLANs via vlan=eth0.1:eth0 on kernel
+      commandline, and as VLAN= conf.d snippet.
+    - Emit empty dictionary in the ethernets section, for static vlan configs
+      without any matches, as otherwise it is invalid config.
+    - Skip attempting to chzdev enable VLAN device
+    - scripts/functions: Fix the fix for bug #1880735, fixing setting up vlans
+      from the kernel commandline.
+    - Drop renderer from netplan yaml, such that netplan uses the default
+      rendered for the target system, i.e. NetworkManager on the desktop.
+    - debian/{control,rules}: Don't run shellcheck on i386 to avoid pulling
+      ghc into our minimal supported set for the pruned architecture.
+    - Work out the kernel modules required to support ZFS filesystems and add
+      them as necessary.
+    - Add modules for nvme path components on multipath nvme.
+    - debian/initramfs-tools.postinst: remove orphaned old-dkms initrd files
+      in /boot.
+    - Ensure we have a /usr/sbin directory in initramfs-tools-core
+    - Drop usage of klibc-utils' fstype in favor of always using udev blkid.
+    - Use set -a/+a around loading conf snippets, to autoexport hook
+      configuration variables. This thus allows packaged hooks to configure
+      each other.
+    - Fix PATH to include /usr/local.
+    - Revert upstream commit 0012977; Ubuntu's resume script implementation
+      diverges from Debian's and this special-case handling of UUID (which is
+      used as the resume target in the default scenario) is required here.
+    - Filter out looping or broken symlinks from the initramfs, since they
+      cause cpio to explode
+    - Always mount loop-mount filesystems read-write; ntfs-3g and vfat can't
+      remount yet.
+    - Provide a clearer error on mount failure of the Windows host filesystem
+    - Fix copying libgcc_s when there is optimized pthreads installed.
+    - scripts/local: Re-execute cryptroot local-block script.
+    - d/tests: Add explicit call to partprobe on net test, specially in prep-
+      image and run-image.
+    - scripts/local-premount/resume: Use readlink -f to correctly handle non-
+      symlink $resume
+    - d/t/control:autopkgtests running qemu need root, add needs-root
+      restriction
+    - Cherry-pick merge request !26 to support xz compressed firmware.
+      Uncompressed firmware is preffered, with a fallback to use compressed
+      firmware files.
+    - Improve shell scripts to conform to standards in shellcheck > 8.0
+    - Increase image file to 2GB in autopkgtest
+    - Force copy pthread and libgcc_s libraries via a stub binary. To avoid
+      circular shared library dependencies between compiler and libc,
+      libpthreads chooses to dlopen libgcc_s, instead of linking against it.
+      However, we have no way to parse/know what it needs. And even when we
+      hardcode to include libgcc_s1, we don't have a way to know which
+      libgcc_s1 is needed on a given system and from which path to include it.
+      But there is a hook-function to copy a binary and all of its shared
+      library dependencies. Thus create a stub empty executable, with shared
+      linking against pthreads and gcc_s1 and always include it in the initrd.
+      This way at initrd creation time, ldd is used to correctly resolve these
+      shared library dependencies and correctly copy them into the initrd.
+      This removes hardcoding paths as to where these libraries must be copied
+      from on the host.
+    - Lower the compression levels for zstd and lz4 Following the discussion
+      on the mailing list, we have reached a conclusion to lower the default
+      compression levels:
+      - For lz4, the compression level is lowered to 2 from 9
+      - For zstd, the compression level is lowered to 1 from 9
+    - Include nvdimm modules in block modules, they provide access to block
+      pmem devices.
+    - Include dax and nfit modules, also needed for pmem devices.
+    - Add char/hw_random drivers
+  * Removed patches obsoleted/merged by upstream:
+    - Switch default initramfs compression to zstd, as it produces the lower
+      overall boot time.
+    - Don't recommend pigz, which is in universe.
+    - Suppress shellcheck SC1010 errors, returning lots of false-positives on
+      use of 'done' as a word.
+    - hook-functions: when MODULES=list there will be no 'kernel' dir, so
+      don't try to find anything there, as it will log an 'error' this is
+      needed for amd64-ata-only autopkgtest to pass, or we would need to
+      ignore the 'error' with allow-stderr
+    - hooks/fsck: always include fsck binaries irrespective of PASSNO value,
+      otherwise initrds fail to mount rootfs and have no ability to fix the
+      rootfs.
+    - Cherry-pick merge request !51 to decompress compressed kernel modules
+      for boot speed performance.
+    - For net boot include most of net/usb modules, except niche modems.
+  * Reinstate build-time shellcheck (but leave shellcheck out of
+    autopkgtests as per debian bug #992798)
+  * Ensure commented COMPRESSLEVEL is consistent with the default
+
+ -- Dave Jones <dave.jones@canonical.com>  Thu, 01 Sep 2022 13:43:43 +0100
+
+initramfs-tools (0.142) unstable; urgency=medium
+
+  [ Dan Streetman ]
+  * [8c9840e] hooks/fsck: always include fsck binary (LP: #1917780)
+
+  [ Dimitri John Ledkov ]
+  * [d8c5864] mkinitramfs: decompress compressed kernel modules
+
+  [ szubersk ]
+  * [e447e91] resume: Don't resume from a swap device on a ZVOL
+
+  [ Johannes Schauer Marin Rodrigues ]
+  * [834d01d] hook-functions: Add pwm-imx27, nwl-dsi, ti-sn65dsi86,
+    imx-dcss, mxsfb, mux-mmio and imx8mq-interconnect for MNT Reform 2
+    panel/backlight.
+
+  [ Rich Ercolani ]
+  * [50d945a] Add support for specifying compression level
+
+  [ Ben Hutchings ]
+  * [5bf479d] hook-functions: Remove support for ieee1394 and i2o
+  * [9a4d579] hook-functions: auto_add_modules: Include UFS drivers from
+    drivers/ufs/
+
+  [ Sven Joachim ]
+  * [c064b9e] Copy modules.builtin.modinfo into initramfs (Closes: #1014319)
+
+ -- Ben Hutchings <benh@debian.org>  Tue, 12 Jul 2022 23:51:34 +0200
+
+initramfs-tools (0.141) unstable; urgency=medium
+
+  [ Hideki Yamane ]
+  * [742c8ee] Use zstd as default compression for initramfs (Closes: #976054)
+  * [b6ccfb6] Recommends: s/pigz/zstd/
+  * [1063c43] Add check whether zstd support kernel (>= 5.9) and
+    CONFIG_RD_ZSTD=y or not
+  * [71c29fd] As comparison, compression level 9 is better.
+  * [9cee2f0] Consider SOURCE_DATE_EPOCH option for zstd
+
+  [ Alper Nebi Yasak ]
+  * [db7aec4] hook-functions: Include io-domain in dw_mmc-rockchip hidden
+    dependencies
+
+  [ Michael Biebl ]
+  * [7ec5e26] Setup /dev/fd and /dev/std{in,out,err} after mounting devtmpfs
+    (Closes: #981302)
+
+  [ Dan Streetman ]
+  * [116b532] hook-functions: check for dir before running find on it
+    (LP: #1927779)
+
+  [ Vagrant Cascadian ]
+  * [a5d9b32] hook-functions: Add pwm-rockchip to "fb" modules for Pinebook PRO
+    LCD display.
+  * [7e15676] hook-functions: Add usb/typec/tcpm modules to support keyboard on
+    Pinebook PRO.
+  * [5f17c03] hook-functions: Add panel-edp to "fb" modules for Pinebook PRO
+    LCD display.
+
+  [ Ben Hutchings ]
+  * [26f2f00] Only run shellcheck in Salsa CI (Closes: #992798)
+  * [bd1519b] Fix shellcheck warning "Avoid x-prefix in comparisons ..."
+  * [4937118] hook-functions: Fix shellcheck warning "Expansions inside ${..}
+    need to be ..."
+  * [883f4ad] mkiniramfs: Log warning about missing compressor to stderr
+  * [035190c] mkinitramfs: Generalise kernel compression support check
+  * [58e05e4] d/salsa-ci.yml: Disable non-arch:all builds
+  * [5679e26] debian/tests/control: Add zstd as dependency to avoid (fatal)
+    warnings
+  * [e856af4] hook-functions: Support network boot via USB Ethernet adapters
+    (Closes: #980788)
+  * [ec5c6c7] scripts/functions: Refactor device name logic in
+    configure_networking
+  * [80eddcf] scripts/functions: Make configure_networking wait for device
+    specified any way (Closes: #911727)
+
+  [ Ben Love ]
+  * [02dc65f] Fully-qualify modprobe calls to avoid busybox
+
+  [ Ariel D'Alessandro ]
+  * [8a6f73c] hook-functions: Add nvmem-imx-ocotp driver module to network boot
+
+ -- Ben Hutchings <benh@debian.org>  Sun, 10 Apr 2022 23:39:45 +0200
+
+initramfs-tools (0.140ubuntu17) kinetic; urgency=medium
+
+  * Include update from Debian for depmod from kmod 30 (LP: #1987620)
+    + Copy modules.builtin.modinfo into initramfs (Closes: #1014319)
+
+ -- Graham Inggs <ginggs@ubuntu.com>  Tue, 30 Aug 2022 13:47:27 +0000
+
+initramfs-tools (0.140ubuntu16) kinetic; urgency=medium
 
   * Add char/hw_random drivers (LP: #1983359)
 
- -- Heinrich Schuchardt <heinrich.schuchardt@canonical.com>  Wed, 14 Jun 2023 08:54:33 +0200
+ -- Heinrich Schuchardt <heinrich.schuchardt@canonical.com>  Tue, 02 Aug 2022 22:54:09 +0200
 
-initramfs-tools (0.140ubuntu13.1) jammy; urgency=medium
+initramfs-tools (0.140ubuntu15) kinetic; urgency=medium
 
-  * Backport pmem support from kinetic by adding the nvdimm, dax, and nfit
-    modules (LP: #1981385)
+  * Include dax and nfit modules, also needed for pmem devices. (LP: #1981385)
 
- -- Dan Bungert <daniel.bungert@canonical.com>  Thu, 27 Oct 2022 11:44:07 -0600
+ -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Fri, 08 Jul 2022 15:03:33 +1200
+
+initramfs-tools (0.140ubuntu14) kinetic; urgency=medium
+
+  * Include nvdimm modules in block modules, they provide access to block
+    pmem devices.
+
+ -- Dimitri John Ledkov <dimitri.ledkov@canonical.com>  Wed, 06 Jul 2022 23:23:50 +0100
 
 initramfs-tools (0.140ubuntu13) jammy; urgency=medium
 
@@ -132,7 +656,7 @@ initramfs-tools (0.140ubuntu5) impish; urgency=medium
 
 initramfs-tools (0.140ubuntu4) impish; urgency=medium
 
-  * Pacify shellcheck to fix ftbfs. 
+  * Pacify shellcheck to fix ftbfs.
 
  -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Thu, 06 May 2021 10:57:14 +1200
 
@@ -8709,4 +9233,3 @@ initramfs-tools (0.1) unstable; urgency=low
   * Initial Release.
 
  -- Jeff Bailey <jbailey@ubuntu.com>  Thu, 27 Jan 2005 15:23:52 -0500
-

@@ -20,3 +20,4 @@ build_initramfs
 build_rootfs_ext2
 
 run_qemu
+check_no_network_configuration

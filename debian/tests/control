@@ -1,9 +1,5 @@
-Tests: shellcheck
-Depends: @, shellcheck
-Restrictions: superficial
-
 Test-Command: ./tests/run-tests
-Depends: netplan.io
+Depends: netplan.io, udev
 Restrictions: allow-stderr
 Features: test-name=unit-tests
 
@@ -16,6 +12,7 @@ Depends: genext2fs,
          linux-image-generic,
          qemu-efi-arm [armhf],
          qemu-kvm,
+         zstd,
          @
 Restrictions: needs-root
 
@@ -28,12 +25,13 @@ Depends: busybox | busybox-initramfs,
          linux-image-generic,
          qemu-efi-arm [armhf],
          qemu-kvm,
+         zstd,
          @
 Restrictions: needs-root
 
 Tests: qemu-ata-only
 Architecture: amd64
-Depends: genext2fs, klibc-utils, linux-image-generic, qemu-kvm, @
+Depends: genext2fs, klibc-utils, linux-image-generic, qemu-kvm, zstd, @
 Restrictions: needs-root
 
 Tests: qemu-virtio-only qemu-separate-usr qemu-panic-shell
@@ -46,6 +44,7 @@ Depends: genext2fs,
          qemu-efi-arm [armhf],
          qemu-kvm,
          seabios [ppc64el],
+         zstd,
          @
 Restrictions: needs-root
 
@@ -54,7 +53,6 @@ Architecture: amd64 arm64 armhf ppc64el s390x
 Depends: genext2fs,
          iproute2,
          ipxe-qemu,
-         isc-dhcp-client,
          klibc-utils,
          linux-image-generic,
          procps,
@@ -63,5 +61,45 @@ Depends: genext2fs,
          qemu-efi-arm [armhf],
          qemu-kvm,
          seabios [ppc64el],
+         zstd,
          @
 Restrictions: needs-root
+
+Tests: qemu-net-dnsmasq
+Architecture: amd64 armhf s390x
+Depends: dnsmasq,
+         genext2fs,
+         iproute2,
+         ipxe-qemu,
+         klibc-utils,
+         linux-image-generic,
+         procps,
+         python3,
+         qemu-efi-arm [armhf],
+         qemu-kvm,
+         zstd,
+         @
+Restrictions: needs-root
+
+# qemu-net-iscsi fails on arm64: https://launchpad.net/bugs/2097568
+# tgt is missing on armhf on Ubuntu 24.04 (noble)
+Tests: qemu-net-iscsi
+Architecture: amd64 ppc64el s390x
+Restrictions: needs-root
+Depends: busybox | busybox-initramfs,
+         dnsmasq,
+         genext2fs,
+         iproute2,
+         ipxe-qemu,
+         klibc-utils,
+         linux-image-generic,
+         open-iscsi,
+         procps,
+         python3,
+         qemu-efi-aarch64 [arm64],
+         qemu-efi-arm [armhf],
+         qemu-kvm,
+         seabios [ppc64el],
+         tgt,
+         zstd,
+         @

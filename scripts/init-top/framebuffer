@@ -91,9 +91,12 @@ if [ -n "${FB}" ]; then
 	udevadm settle
 else
 	# If we have no graphics devices yet, wait for udev to settle
-	[ -d /sys/class/graphics/fbcon ] && \
-	[ -d /sys/class/graphics/fb0   ] && \
-	[ -d /sys/class/drm/card0      ] || udevadm settle
+	if    ! [ -d /sys/class/graphics/fbcon ] \
+	   || ! [ -d /sys/class/graphics/fb0   ] \
+	   || ! [ -d /sys/class/drm/card0      ]
+	then
+		udevadm settle
+	fi
 
 	# If we still have no graphics device, fall back to vesafb like
 	# we do in the post-initramfs case in
@@ -104,9 +107,12 @@ else
 	# video drivers; and if we probe vesafb when we aren't meant to it
 	# will cause problems later.  So just to be sure, add a sleep(1)
 	# which seems to be enough time to let the drm interface get loaded.
-	[ -d /sys/class/graphics/fbcon ] && \
-	[ -d /sys/class/graphics/fb0   ] && \
-	[ -d /sys/class/drm/card0      ] || sleep 1
+	if    ! [ -d /sys/class/graphics/fbcon ] \
+	   || ! [ -d /sys/class/graphics/fb0   ] \
+	   || ! [ -d /sys/class/drm/card0      ]
+	then
+		sleep 1
+	fi
 
 	if    ! [ -d /sys/class/graphics/fbcon ] \
 	   || ! [ -d /sys/class/graphics/fb0   ] \

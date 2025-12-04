@@ -15,6 +15,7 @@ lsinitramfs "${INITRAMFS}" | grep -qw busybox
 build_rootfs_ext2
 
 run_qemu
+check_no_network_configuration
 
 # Check that fsck ran
 grep -q "^/dev/${ROOTDISK_LINUX_NAME}: clean," "${OUTPUT}"

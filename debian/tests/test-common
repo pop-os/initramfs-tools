@@ -26,12 +26,8 @@ ppc64el)
 	# Slowest execution seen in Ubuntu ppc64el autopkgtest: 230 seconds
 	QEMU_TIMEOUT=600
 	;;
-s390x)
-	# Slowest execution seen in Ubuntu s390x autopkgtest: 58 seconds
-	QEMU_TIMEOUT=120
-	;;
 *)
-	QEMU_TIMEOUT=60
+	QEMU_TIMEOUT=120
 esac
 
 if [ -n "${AUTOPKGTEST_TMP-}" ]; then
@@ -81,7 +77,7 @@ EOF
 chmod a+x "${ROOTDIR}/sbin/init"
 cp /usr/lib/klibc/bin/sh "${ROOTDIR}/bin/sh"
 cp /usr/lib/klibc/bin/poweroff "${ROOTDIR}/bin/poweroff"
-cp "$(dpkg -L libklibc | grep '^/lib/klibc.*\.so$')" "${ROOTDIR}/lib/"
+cp "$(dpkg -L libklibc | grep '^\(/usr\)\?/lib/klibc.*\.so$')" "${ROOTDIR}/lib/"
 
 # VM output file
 OUTPUT="${BASEDIR}/output.log"
@@ -143,6 +139,7 @@ build_initramfs() {
 build_fs_ext2() {
 	local dir="${1}"
 	local disk="${2}"
+	local label="${3-}"
 
 	# Get directory size
 	local blocks="$(du --summarize "${dir}" | cut -f 1)"
@@ -154,7 +151,7 @@ build_fs_ext2() {
 
 	# genext2fs writes status messages to stderr; hide that from
 	# autopkgtest
-	genext2fs 2>&1 -b "${blocks}" -N "${inodes}" -U -d "${dir}" "${disk}"
+	genext2fs 2>&1 -b "${blocks}" -N "${inodes}" ${label:+-L "$label"} -U -d "${dir}" "${disk}"
 }
 
 build_rootfs_ext2() {
@@ -162,30 +159,71 @@ build_rootfs_ext2() {
 }
 
 _run_qemu() {
-	local extra_append="$1"
+	local append="$1"
 	shift
 
 	echo "I: Running qemu (with a timeout of $QEMU_TIMEOUT seconds)..."
 	timeout --foreground "$QEMU_TIMEOUT" \
-		debian/tests/run-qemu /boot/vmlinu*-"${KVER}" "${INITRAMFS}" \
-		"root=/dev/${ROOTDISK_LINUX_NAME} ${extra_append}" -nographic \
-		-drive "file=${ROOTDISK},if=${ROOTDISK_QEMU_IF},media=disk,format=raw" \
+		debian/tests/run-qemu /boot/vmlinu*-"${KVER}" "${INITRAMFS}" "${append}" \
+		-nographic -chardev stdio,id=char0 -serial chardev:char0 "$@" \
 		${USRDISK:+-drive "file=${USRDISK},if=${USRDISK_QEMU_IF},media=disk,format=raw"} \
-		-chardev stdio,id=char0 -serial chardev:char0 "$@" | tee "${OUTPUT}"
+		| tee "${OUTPUT}"
+}
+
+run_qemu_in_background() {
+	local rootdisk="$1"
+	local pidfile="$2"
+	local logfile="$3"
+	shift 3
+
+	echo "I: Running qemu in background..."
+	debian/tests/run-qemu /boot/vmlinu*-"${KVER}" "${INITRAMFS}" \
+		"root=/dev/${ROOTDISK_LINUX_NAME} panic=-1" -display none \
+		-drive "file=${rootdisk},if=${ROOTDISK_QEMU_IF},media=disk,format=raw" \
+		-device "virtio-net-pci,netdev=lan9,mac=52:54:00:12:33:21" \
+		-netdev "socket,id=lan9,listen=localhost:1234" \
+		-pidfile "${pidfile}" -serial "file:${logfile}" -daemonize "$@"
 }
 
 run_qemu_nocheck() {
 	# hide error messages from autopkgtest
-	_run_qemu "${1-}" 2>&1
+	_run_qemu "root=/dev/${ROOTDISK_LINUX_NAME} ${1-}" \
+		-drive "file=${ROOTDISK},if=${ROOTDISK_QEMU_IF},media=disk,format=raw" 2>&1
 }
 
 run_qemu() {
-	_run_qemu "panic=-1 $*" \
+	_run_qemu "root=/dev/${ROOTDISK_LINUX_NAME} panic=-1 $*" \
+		-drive "file=${ROOTDISK},if=${ROOTDISK_QEMU_IF},media=disk,format=raw" \
 		-device "virtio-net-pci,netdev=lan0,mac=52:54:00:65:43:21" \
 		-netdev "user,id=lan0,net=10.0.3.0/24,ipv6-net=fec7::/48,hostname=pizza,dnssearch=test,domainname=example.com,bootfile=/path/to/bootfile2" \
 		-device "virtio-net-pci,netdev=lan1,mac=52:54:00:12:34:56" \
 		-netdev "user,id=lan1,hostname=goulash,dnssearch=example,dnssearch=example.net,domainname=test,bootfile=/path/to/bootfile"
 	grep -qF "${INIT_MESSAGE}" "${OUTPUT}"
+}
+
+run_qemu_diskless_with_socket_network() {
+	local append="$1"
+	shift
+	_run_qemu "panic=-1 $append" \
+		-device "virtio-net-pci,netdev=lan0,mac=52:54:00:65:43:21" \
+		-netdev "socket,id=lan0,connect=localhost:1234" "$@"
+	grep -qF "${INIT_MESSAGE}" "${OUTPUT}"
+}
+
+run_qemu_with_socket_network() {
+	_run_qemu "root=/dev/${ROOTDISK_LINUX_NAME} panic=-1 $*" \
+		-drive "file=${ROOTDISK},if=${ROOTDISK_QEMU_IF},media=disk,format=raw" \
+		-device "virtio-net-pci,netdev=lan0,mac=52:54:00:65:43:21" \
+		-netdev "socket,id=lan0,connect=localhost:1234"
+	grep -qF "${INIT_MESSAGE}" "${OUTPUT}"
+}
+
+check_no_output() {
+	local msg="$1"
+	if grep -qF "${msg}" "${OUTPUT}"; then
+		echo >&2 "E: Message '${msg}' found in log output '${OUTPUT}."
+		exit 1
+	fi
 }
 
 check_output() {
@@ -194,4 +232,29 @@ check_output() {
 		echo >&2 "E: Message '${msg}' not found in log output '${OUTPUT}."
 		exit 1
 	fi
+}
+
+check_no_network_configuration() {
+	check_no_output "Waiting up to 180 secs for"
+}
+
+wait_for_server_startup() {
+	local expected_log_line="$1"
+	local qemu_logfile="$2"
+	local server_pid="$3"
+	local timeout="$QEMU_TIMEOUT"
+
+	while ! grep -q "$expected_log_line" "$qemu_logfile"; do
+		echo "Waiting up to $timeout seconds for server (QEMU process $server_pid) to get started..."
+		if ! test -d "/proc/$server_pid"; then
+			echo >&2 "Error: QEMU server process $server_pid disappeared."
+			return 1
+		fi
+		timeout=$((timeout - 1))
+		if test "$timeout" -le 0; then
+			echo >&2 "Error: server was not started within $QEMU_TIMEOUT seconds."
+			return 1
+		fi
+		sleep 1
+	done
 }

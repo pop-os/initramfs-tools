@@ -20,13 +20,16 @@ build_initramfs
 build_rootfs_ext2
 
 run_qemu_nocheck
+check_no_network_configuration
 grep -qF "ALERT!  /dev/nonexistent does not exist.  Dropping to a shell!" "${OUTPUT}"
 grep -qF "(initramfs) " "${OUTPUT}"
 
 run_qemu_nocheck "panic=-1"
+check_no_network_configuration
 grep -qF "Rebooting automatically due to panic= boot argument" "${OUTPUT}"
 ! grep -qF "(initramfs) " "${OUTPUT}"
 
 run_qemu_nocheck "panic=0"
+check_no_network_configuration
 grep -qF "Halting automatically due to panic= boot argument" "${OUTPUT}"
 ! grep -qF "(initramfs) " "${OUTPUT}"

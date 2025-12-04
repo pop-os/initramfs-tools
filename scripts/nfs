@@ -81,7 +81,7 @@ nfs_mount_root()
 	nfs_top
 
 	# For DHCP
-	modprobe af_packet
+	/sbin/modprobe af_packet
 
 	wait_for_udev 10
 
@@ -130,7 +130,7 @@ nfs_mount_fs()
 	nfs_top
 
 	# For DHCP
-	modprobe af_packet
+	/sbin/modprobe af_packet
 
 	wait_for_udev 10
 

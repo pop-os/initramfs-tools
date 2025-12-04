@@ -21,10 +21,9 @@ ROOTDISK_QEMU_IF=virtio
 ROOTDISK_LINUX_NAME=vda
 . debian/tests/test-common
 
-# busybox is needed for ip and grep command
 cat >>"${CONFDIR}/initramfs.conf" <<EOF
 MODULES=list
-BUSYBOX=y
+BUSYBOX=n
 FSTYPE=ext2
 EOF
 cat >"${CONFDIR}/modules" <<EOF
@@ -35,8 +34,6 @@ virtio_net
 EOF
 install -m 755 debian/tests/hooks/drop-hostname "${CONFDIR}/hooks/drop-hostname"
 install -m 755 debian/tests/hooks/persistent-net "${CONFDIR}/hooks/persistent-net"
-mkdir -p "${CONFDIR}/scripts/local-bottom"
-install -m 755 debian/tests/scripts/local-bottom/configure_network "${CONFDIR}/scripts/local-bottom/configure_network"
 build_initramfs
 
 prepare_network_dumping_rootfs
@@ -53,6 +50,8 @@ IPV4DNS0='10.0.3.3'
 HOSTNAME='pizza'
 DNSDOMAIN='example.com'
 ROOTSERVER='10.0.3.2'
+filename='/path/to/bootfile2'
+DOMAINSEARCH='test.'
 "
 EXPECTED_DHCP_LAN1="
 DEVICE='lan1'
@@ -65,10 +64,12 @@ IPV4DNS0='10.0.2.3'
 HOSTNAME='goulash'
 DNSDOMAIN='test'
 ROOTSERVER='10.0.2.2'
+filename='/path/to/bootfile'
+DOMAINSEARCH='example. example.net.'
 "
 
 run_qemu "ip=dhcp"
-#check_output "Begin: Waiting up to 180 secs for any network device to become available"
+check_output "Begin: Waiting up to 180 secs for any network device to become available"
 ./debian/tests/check-log "${OUTPUT}" has_no_running_processes \
 	has_hostname "goulash|pizza" \
 	has_interface_mtu "lan[01]" 1500 \
@@ -104,12 +105,12 @@ IPV4DNS0='0.0.0.0'
 HOSTNAME='lasagne'
 DNSDOMAIN=''
 ROOTSERVER='0.0.0.0'
+filename=''
 DOMAINSEARCH=''"
 
 # Test DHCP configuration with BOOTIF specified
 run_qemu "BOOTIF=01-52-54-00-12-34-56 ip=dhcp"
-#check_output "Begin: Waiting up to 180 secs for device with address 52:54:00:12:34:56 to become available"
-check_output "Begin: Waiting up to 180 secs for lan1 to become available"
+check_output "Begin: Waiting up to 180 secs for device with address 52:54:00:12:34:56 to become available"
 ./debian/tests/check-log "${OUTPUT}" has_no_running_processes \
 	has_hostname "goulash" \
 	has_interface_mtu "lan1" 1500 \
@@ -118,7 +119,7 @@ check_output "Begin: Waiting up to 180 secs for lan1 to become available"
 	has_net_conf 1 "/run/net-lan1.conf=${EXPECTED_DHCP_LAN1}"
 
 run_qemu "ip=on"
-#check_output "Begin: Waiting up to 180 secs for any network device to become available"
+check_output "Begin: Waiting up to 180 secs for any network device to become available"
 ./debian/tests/check-log "${OUTPUT}" has_no_running_processes \
 	has_hostname "goulash|pizza" \
 	has_interface_mtu "lan[01]" 1500 \

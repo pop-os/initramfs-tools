@@ -30,3 +30,4 @@ EOF
 
 persist_net lan0 "52:54:00:65:43:21"
 persist_net lan1 "52:54:00:12:34:56"
+persist_net lan9 "52:54:00:12:33:21"
